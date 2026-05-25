@@ -1,0 +1,150 @@
+const express = require('express');
+const nodemailer = require('nodemailer');
+const cors = require('cors');
+require('dotenv').config();
+
+const app = express();
+const PORT = process.env.PORT || 5001;
+
+// Enable CORS so the React app running on port 3000 can communicate with the server
+app.use(cors({
+  origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
+  methods: ['POST', 'GET'],
+  allowedHeaders: ['Content-Type']
+}));
+
+app.use(express.json());
+
+// Set up direct secure Gmail SMTP transport
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.GMAIL_USER,
+    pass: process.env.GMAIL_APP_PASSWORD,
+  },
+});
+
+// Verify the transport configuration on startup
+transporter.verify((error, success) => {
+  if (error) {
+    console.error('[SMTP Server] Gmail SMTP authentication failed. Error details:', error);
+  } else {
+    console.log('[SMTP Server] Gmail SMTP transporter successfully verified and ready to send emails!');
+  }
+});
+
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+  res.status(200).json({ status: 'healthy', timestamp: new Date() });
+});
+
+// Email sending endpoint
+app.post('/api/send-email', (req, res) => {
+  const {
+    subject,
+    from_name,
+    to_email,
+    message,
+    name,
+    email,
+    phone,
+    loan_amount,
+    loan_type,
+    term,
+    purpose,
+    employment,
+    notes
+  } = req.body;
+
+  console.log(`[SMTP Server] Dispatching request for: "${subject}" to "${to_email || process.env.RECIPIENT_EMAIL}"`);
+
+  // Styled HTML onboarding template for a premium inbox look
+  const htmlBody = `
+    <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: auto; border: 1px solid #e0e0e0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+      <div style="background: linear-gradient(135deg, #10b981 0%, #14b8a6 100%); padding: 24px; text-align: center; color: white;">
+        <h2 style="margin: 0; font-size: 24px; font-weight: bold; letter-spacing: 0.5px;">@MONEY CAPITAL</h2>
+        <p style="margin: 4px 0 0 0; font-size: 12px; font-weight: 300; letter-spacing: 2px; text-transform: uppercase;">Onboarding Qualification Portal</p>
+      </div>
+      <div style="padding: 24px; background-color: #ffffff;">
+        <h3 style="margin-top: 0; color: #1e293b; border-bottom: 2px solid #f1f5f9; padding-bottom: 8px;">New Loan Qualification Request</h3>
+        
+        <table style="width: 100%; border-collapse: collapse; margin-top: 16px;">
+          <tr>
+            <td style="padding: 8px 0; font-weight: bold; color: #475569; width: 40%;">Applicant Name:</td>
+            <td style="padding: 8px 0; color: #0f172a;">${name}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 0; font-weight: bold; color: #475569;">Email Address:</td>
+            <td style="padding: 8px 0; color: #0f172a;"><a href="mailto:${email}" style="color: #0284c7; text-decoration: none;">${email}</a></td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 0; font-weight: bold; color: #475569;">Contact Phone:</td>
+            <td style="padding: 8px 0; color: #0f172a;">${phone}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 0; font-weight: bold; color: #475569;">Employment Status:</td>
+            <td style="padding: 8px 0; color: #0f172a;">${employment}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 0; font-weight: bold; color: #475569;">Loan Type:</td>
+            <td style="padding: 8px 0; color: #0f172a; font-weight: 600;">${loan_type}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 0; font-weight: bold; color: #475569;">Requested Amount:</td>
+            <td style="padding: 8px 0; color: #10b981; font-weight: bold; font-size: 16px;">${loan_amount}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 0; font-weight: bold; color: #475569;">Repayment Term:</td>
+            <td style="padding: 8px 0; color: #0f172a;">${term}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 0; font-weight: bold; color: #475569;">Loan Purpose:</td>
+            <td style="padding: 8px 0; color: #0f172a;">${purpose}</td>
+          </tr>
+        </table>
+        
+        <div style="margin-top: 24px; padding: 16px; background-color: #f8fafc; border-radius: 8px; border-left: 4px solid #6366f1;">
+          <h4 style="margin: 0 0 8px 0; color: #312e81; font-size: 12px; text-transform: uppercase; letter-spacing: 1px;">Applicant Notes:</h4>
+          <p style="margin: 0; color: #1e1b4b; font-size: 14px; font-style: italic;">"${notes || 'None'}"</p>
+        </div>
+      </div>
+      <div style="padding: 16px; background-color: #f1f5f9; text-align: center; font-size: 11px; color: #64748b; border-top: 1px solid #e2e8f0;">
+        <span>This is an automated request generated by @money Capital Panel.</span><br/>
+        <span>Secure SSL Onboarding Pipeline Active</span>
+      </div>
+    </div>
+  `;
+
+  // Define mail headers
+  const mailOptions = {
+    from: `"${from_name || '@money Capital'}" <${process.env.GMAIL_USER}>`,
+    to: to_email || process.env.RECIPIENT_EMAIL || 'hello@atmoney.com.au',
+    replyTo: email, // Sets reply-to directly to the applicant
+    subject: subject || `Loan Qualification Request - ${name}`,
+    text: message, // plain-text fallback
+    html: htmlBody // beautiful HTML body template
+  };
+
+  // Dispatch email
+  transporter.sendMail(mailOptions, (error, info) => {
+    if (error) {
+      console.error('[SMTP Server] SMTP sending failed. Error details:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'SMTP sending failed',
+        error: error.message
+      });
+    }
+    console.log('[SMTP Server] Email sent successfully!', info.response);
+    return res.status(200).json({
+      success: true,
+      message: 'Email sent successfully via secure SMTP backend server',
+      messageId: info.messageId,
+      response: info.response
+    });
+  });
+});
+
+app.listen(PORT, () => {
+  console.log(`[SMTP Server] Server running on port ${PORT}`);
+});
